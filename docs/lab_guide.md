@@ -2,76 +2,95 @@
 
 ## Scenario
 
-Bạn cần xây dựng một research assistant có thể nhận câu hỏi dài, tìm thông tin, phân tích và viết câu trả lời cuối cùng. Lab yêu cầu so sánh hai cách làm:
+Repo này triển khai một research assistant gồm `Supervisor`, `Researcher`, `Analyst`, `Writer` và một `Critic` optional. Hệ thống nhận câu hỏi nghiên cứu, thu thập nguồn hoặc fallback context, phân tích thông tin, rồi viết câu trả lời cuối cùng.
 
-1. **Single-agent baseline**: một agent làm toàn bộ.
-2. **Multi-agent workflow**: Supervisor điều phối Researcher, Analyst, Writer.
+## Architecture
 
-## Quy tắc quan trọng
-
-- Không thêm agent nếu không có lý do rõ ràng.
-- Mỗi agent phải có responsibility riêng.
-- Shared state phải đủ rõ để debug.
-- Phải có trace hoặc log cho từng bước.
-- Phải benchmark, không chỉ nhìn output bằng cảm tính.
+```text
+User Query
+  |
+  v
+Supervisor
+  |-- Researcher -> research_notes, sources
+  |-- Analyst ----> analysis_notes
+  |-- Writer -----> final_answer
+  v
+done
+```
 
 ## Milestone 1: Baseline
 
-File gợi ý:
+Implemented files:
 
 - `src/multi_agent_research_lab/cli.py`
 - `src/multi_agent_research_lab/services/llm_client.py`
 
-TODO(student): thay baseline placeholder bằng một call LLM thật.
+Result:
+
+- Baseline command calls `LLMClient`.
+- `LLMClient` supports OpenAI-compatible providers through `OPENAI_API_KEY`, `OPENAI_MODEL`, and optional `OPENAI_BASE_URL`.
+- Missing API key returns a safe message instead of crashing.
 
 ## Milestone 2: Supervisor
 
-File gợi ý:
+Implemented files:
 
 - `src/multi_agent_research_lab/agents/supervisor.py`
 - `src/multi_agent_research_lab/graph/workflow.py`
 
-TODO(student): implement routing policy.
+Routing policy:
 
-Gợi ý câu hỏi thiết kế:
+- No `research_notes` -> `researcher`.
+- Has research but no `analysis_notes` -> `analyst`.
+- Has analysis but no `final_answer` -> `writer`.
+- Has final answer -> `done`.
+- Reaches `MAX_ITERATIONS` -> `done`.
 
-- Khi nào gọi Researcher?
-- Khi nào gọi Analyst?
-- Khi nào gọi Writer?
-- Khi nào stop?
-- Nếu agent fail thì retry hay fallback?
+## Milestone 3: Worker Agents
 
-## Milestone 3: Worker agents
+Implemented files:
 
-File gợi ý:
+- `src/multi_agent_research_lab/agents/researcher.py`
+- `src/multi_agent_research_lab/agents/analyst.py`
+- `src/multi_agent_research_lab/agents/writer.py`
+- `src/multi_agent_research_lab/agents/critic.py`
 
-- `agents/researcher.py`
-- `agents/analyst.py`
-- `agents/writer.py`
+Behavior:
 
-TODO(student): implement từng worker.
+- `Researcher` uses `SearchClient`, saves `sources`, and writes `research_notes`.
+- `Analyst` reads `research_notes` and writes `analysis_notes`.
+- `Writer` reads `analysis_notes` and writes `final_answer`.
+- `Critic` can review the final answer but is not wired into the default graph.
 
-## Milestone 4: Trace và benchmark
+## Milestone 4: Trace and Benchmark
 
-File gợi ý:
+Implemented files:
 
-- `observability/tracing.py`
-- `evaluation/benchmark.py`
-- `evaluation/report.py`
+- `src/multi_agent_research_lab/observability/tracing.py`
+- `src/multi_agent_research_lab/evaluation/benchmark.py`
+- `src/multi_agent_research_lab/evaluation/report.py`
 
-Benchmark tối thiểu:
+Minimum metrics:
 
-| Metric | Cách đo gợi ý |
+| Metric | Implementation |
 |---|---|
-| Latency | wall-clock time |
-| Cost | token usage hoặc provider usage |
-| Quality | rubric 0-10 do peer review |
-| Citation coverage | số claims có source / tổng claims chính |
-| Failure rate | số query fail / tổng query |
+| Latency | Wall-clock timing in `run_benchmark` |
+| Cost | Sum of `cost_usd` metadata from agent results when available |
+| Quality | Heuristic score based on completed state fields, sources, answer length, errors |
+| Citation coverage | Supported by source references in prompts; real scoring should be reviewed manually |
+| Failure rate | Derived from `state.errors` across benchmark runs |
 
-## Exit ticket
+## Commands For User To Run
 
-Mỗi nhóm trả lời 2 câu:
+Do not run these until dependencies and `.env` are configured.
 
-1. Case nào nên dùng multi-agent? Vì sao?
-2. Case nào không nên dùng multi-agent? Vì sao?
+```powershell
+python -m compileall -q src tests
+python -m pytest -q
+python -m multi_agent_research_lab.cli multi-agent --query "Research LangGraph multi-agent workflow and summarize it"
+```
+
+## Exit Ticket
+
+1. Multi-agent is useful when the task has separable stages, needs traceability, and benefits from role-specific prompts.
+2. Multi-agent is not useful for short, low-risk questions where extra routing increases latency and complexity without improving quality.
